@@ -1,0 +1,15 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+scipy
+geopandas
+shapely
+folium
+py_wake
+xgboost
+streamlit
+pytest
+h5py
+-e .
