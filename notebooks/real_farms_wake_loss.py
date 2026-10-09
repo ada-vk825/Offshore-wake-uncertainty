@@ -46,25 +46,29 @@ GOWF_FILE = os.path.join(DATA_DIR, "gowf", "GOWF_V1.3.shp")
 FARM_FILE = os.path.join(DATA_DIR, "gdf.gpkg")
 ERA5_DIR = os.path.join(DATA_DIR, "era5")
 FIG_DIR = "../figures"
-EPSG = 32631            # UTM 31N covers the Belgian / Dutch Borssele zone
 RANDOM_SEED = 42
 
 # %% [markdown]
 # ## Settings
 #
-# The target farm is **Norther** (Belgium), the farm used in the report. Its neighbours form the Belgian offshore zone plus the Dutch Borssele zone,
-# and the Princess Elisabeth Zone (PEZ) is the planned future build-out next to it.
+# Two target sites are configured. Pick one with `TARGET_FARM` (or the `WAKE_TARGET` environment variable).
 #
-# Turbine models are not in either dataset, so they are taken from public project information. **Check these before the paper.**
-# Hub heights are approximate.
+# * **Anholt** (Denmark, default): isolated today, so the planned Kattegat projects show the future build-out effect clearly.
+#   Future farms: Hesselø, Kattegatt Syd and the EMODnet "Trem Mkllebugt" area. Kattegat I/II and Hesselk are left out by default
+#   (Kattegat I is a 914 km2 search area and none of the three has a capacity in EMODnet). Add them to `future` to test them.
+# * **Norther** (Belgium): already inside a dense cluster (Belgian zone + Borssele), with the Princess Elisabeth Zone (PEZ) as future build-out.
+#
+# Turbine models are not in either dataset, so they are taken from public project information. **Check these and the future capacities
+# (several Kattegat projects have been paused or re-tendered) before the paper.** Hub heights are approximate.
 
 # %%
-TARGET_FARM = "Norther"
+TARGET_FARM = os.environ.get("WAKE_TARGET", "Anholt")
 
 TURBINES = {
     "V164-8.4":    dict(diameter=164, hub_height=105, rated_power=8400),
     "Senvion-6.2": dict(diameter=126, hub_height=94,  rated_power=6150),
     "SWT-7.0-154": dict(diameter=154, hub_height=106, rated_power=7350),
+    "SWT-3.6-120": dict(diameter=120, hub_height=82,  rated_power=3600),
     "V112-3.0":    dict(diameter=112, hub_height=72,  rated_power=3000),
     "V90-3.0":     dict(diameter=90,  hub_height=72,  rated_power=3000),
     "V112-3.3":    dict(diameter=112, hub_height=79,  rated_power=3300),
@@ -73,31 +77,50 @@ TURBINES = {
     "15MW-236":    dict(diameter=236, hub_height=140, rated_power=15000),
 }
 
-# name in data/gdf.gpkg  ->  turbine model, status used here
-EXISTING_FARMS = {
-    "Norther":            "V164-8.4",
-    "C-Power":            "Senvion-6.2",
-    "Rentel":             "SWT-7.0-154",
-    "Northwind":          "V112-3.0",
-    "Belwind phase 1":    "V90-3.0",
-    "Nobelwind":          "V112-3.3",
-    "Northwester 2":      "V164-9.5",
-    "Seamade (SeaStar)":  "SG-8.0-167",
-    "Mermaid":            "SG-8.0-167",
-    "Borssele I":         "SG-8.0-167",
-    "Borssele Kavel II":  "SG-8.0-167",
-    "Borssele Kavel III": "V164-9.5",
-    "Borssele Kavel IV":  "V164-9.5",
-    "Borssele Kavel V":   "V164-9.5",
+SITES = {
+    "Anholt": dict(
+        epsg=32632, era5="anholt",
+        existing={"Anholt": "SWT-3.6-120"},
+        # future farm -> capacity in MW (None = use EMODnet power_mw)
+        future={"Hesselø": 1000, "Kattegatt Syd": None, "Trem Mkllebugt": None},
+        share_future_by_area=False,
+    ),
+    "Norther": dict(
+        epsg=32631, era5="norther",
+        existing={
+            "Norther":            "V164-8.4",
+            "C-Power":            "Senvion-6.2",
+            "Rentel":             "SWT-7.0-154",
+            "Northwind":          "V112-3.0",
+            "Belwind phase 1":    "V90-3.0",
+            "Nobelwind":          "V112-3.3",
+            "Northwester 2":      "V164-9.5",
+            "Seamade (SeaStar)":  "SG-8.0-167",
+            "Mermaid":            "SG-8.0-167",
+            "Borssele I":         "SG-8.0-167",
+            "Borssele Kavel II":  "SG-8.0-167",
+            "Borssele Kavel III": "V164-9.5",
+            "Borssele Kavel IV":  "V164-9.5",
+            "Borssele Kavel V":   "V164-9.5",
+        },
+        future={"Princess Elisabeth Zone Lot 1": None, "Princess Elisabeth Zone Lot 2.1": None,
+                "Princess Elisabeth Zone Lot 2.2": None, "Princess Elisabeth Zone Lot 3": None},
+        # EMODnet gives 700/700/700/1400 MW for the PEZ lots but Lot 2.1 is only 12 km2, so the zone total is shared out by area
+        share_future_by_area=True,
+    ),
 }
 
-# Future build-out: Princess Elisabeth Zone. Capacity is from EMODnet; turbine count = capacity / turbine rating.
-# Set FUTURE_TURBINE = "SG-8.0-167" to keep the ML surrogate inside its training range (max rotor 167 m, 8.4 MW).
+site = SITES[TARGET_FARM]
+EPSG = site["epsg"]
+EXISTING_FARMS = site["existing"]
+FUTURE_FARMS = list(site["future"])
+
+# Future turbine. Set FUTURE_TURBINE = "SG-8.0-167" to keep the ML surrogate inside its training range (max rotor 167 m, 8.4 MW).
 FUTURE_TURBINE = "15MW-236"
-FUTURE_FARMS = ["Princess Elisabeth Zone Lot 1", "Princess Elisabeth Zone Lot 2.1",
-                "Princess Elisabeth Zone Lot 2.2", "Princess Elisabeth Zone Lot 3"]
 FUTURE_SPACING_D = 6          # minimum spacing used to place future turbines
 N_MC_FUTURE = 10              # random future layouts for layout uncertainty
+FIG_PREFIX = f"real_farms_{TARGET_FARM.lower()}"
+print("Target:", TARGET_FARM, "| existing neighbours:", len(EXISTING_FARMS) - 1, "| future farms:", FUTURE_FARMS)
 
 # Use GOWF positions when GOWF holds at least this fraction of the farm's turbines; otherwise place turbines in the real polygon.
 GOWF_MIN_FRACTION = 0.9
@@ -170,7 +193,7 @@ def farm_turbines_from_gowf(name, n_expected):
 # %% [markdown]
 # ## 2. Build turbine layouts: target, existing neighbours, future build-out
 #
-# Farms with GOWF coverage use their real turbine positions. Farms built after 2019 and the future PEZ farms are filled with
+# Farms with GOWF coverage use their real turbine positions. Farms built after 2019 and the future farms are filled with
 # `place_turbines` inside their **real EMODnet polygon** (no square farms, no polygon expansion; spacing is reduced in 0.5D steps if needed).
 
 # %%
@@ -209,14 +232,16 @@ layout_existing = pd.DataFrame(layout_rows)
 layout_existing.loc[layout_existing.farm == TARGET_FARM, "group"] = "target"
 
 
-# EMODnet gives 700/700/700/1400 MW for the PEZ lots, but Lot 2.1 is only 12 km2, so the lot capacities do not match the polygons.
-# The zone total is therefore shared out by polygon area.
 future_polys = farms[farms.name.isin(FUTURE_FARMS)].copy()
-future_total_mw = future_polys.power_mw.sum()
-future_polys["n_turbines_used"] = np.round(future_total_mw * 1000 * future_polys.geometry.area / future_polys.geometry.area.sum()
-                                           / TURBINES[FUTURE_TURBINE]["rated_power"]).astype(int)
+future_polys["capacity_mw"] = [site["future"][n] if site["future"][n] is not None else p
+                               for n, p in zip(future_polys.name, future_polys.power_mw)]
+assert future_polys.capacity_mw.notna().all(), "Give a capacity for every future farm without an EMODnet power_mw"
+future_total_mw = future_polys.capacity_mw.sum()
+if site["share_future_by_area"]:
+    future_polys["capacity_mw"] = future_total_mw * future_polys.geometry.area / future_polys.geometry.area.sum()
+future_polys["n_turbines_used"] = np.round(future_polys.capacity_mw * 1000 / TURBINES[FUTURE_TURBINE]["rated_power"]).astype(int)
 print(f"Future build-out: {future_total_mw:.0f} MW over {future_polys.geometry.area.sum() / 1e6:.0f} km2")
-print(future_polys.assign(area_km2=future_polys.geometry.area / 1e6)[["name", "power_mw", "area_km2", "n_turbines_used"]].round(1))
+print(future_polys.assign(area_km2=future_polys.geometry.area / 1e6)[["name", "power_mw", "capacity_mw", "area_km2", "n_turbines_used"]].round(1))
 
 
 def future_layout(seed):
@@ -249,7 +274,7 @@ fig, ax = plt.subplots(figsize=(9, 9))
 km = lambda g: g.set_geometry(g.geometry.scale(1e-3, 1e-3, origin=(0, 0)))
 km(farms[farms.name.isin(EXISTING_FARMS)]).boundary.plot(ax=ax, color="0.6", lw=0.6)
 km(farms[farms.name.isin(FUTURE_FARMS)]).boundary.plot(ax=ax, color="tab:orange", lw=0.8, ls="--")
-styles = {"target": ("tab:red", "Target (Norther)"), "existing": ("tab:blue", "Existing"), "future": ("tab:orange", "Future (PEZ)")}
+styles = {"target": ("tab:red", f"Target ({TARGET_FARM})"), "existing": ("tab:blue", "Existing"), "future": ("tab:orange", "Future build-out")}
 all_layout = pd.concat([layout_existing, layout_future])
 for grp, (col, lab) in styles.items():
     g = all_layout[all_layout.group == grp]
@@ -258,9 +283,9 @@ for grp, (col, lab) in styles.items():
         ax.scatter(g.x[real] / 1e3, g.y[real] / 1e3, s=6, c=col, label=f"{lab}, GOWF positions")
     if (~real).any():
         ax.scatter(g.x[~real] / 1e3, g.y[~real] / 1e3, s=6, facecolors="none", edgecolors=col, label=f"{lab}, placed in real polygon")
-ax.set_aspect("equal"); ax.set_xlabel("Easting (km, UTM 31N)"); ax.set_ylabel("Northing (km)")
+ax.set_aspect("equal"); ax.set_xlabel(f"Easting (km, EPSG:{EPSG})"); ax.set_ylabel("Northing (km)")
 ax.legend(fontsize=8, loc="lower left"); ax.set_title("Target, existing neighbours and future build-out")
-plt.savefig(os.path.join(FIG_DIR, "real_farms_layout.png"), dpi=150, bbox_inches="tight")
+plt.savefig(os.path.join(FIG_DIR, f"{FIG_PREFIX}_layout.png"), dpi=150, bbox_inches="tight")
 plt.show()
 
 # %% [markdown]
@@ -288,7 +313,7 @@ def load_era5_wind_rose(data_dir):
     return wr, ws
 
 
-wind_rose, ws_samples = load_era5_wind_rose(os.path.join(ERA5_DIR, "norther"))
+wind_rose, ws_samples = load_era5_wind_rose(os.path.join(ERA5_DIR, site["era5"]))
 print(f"ERA5 samples: {len(ws_samples)}, mean 100 m wind speed {ws_samples.mean():.2f} m/s, "
       f"share above {ML_WS_MAX:.0f} m/s: {(ws_samples > ML_WS_MAX).mean():.1%}")
 
@@ -469,7 +494,7 @@ for ax, name in zip(axes, scenarios):
     ax.set_title(f"{name}"); ax.set_xlabel("PyWake power ratio")
 axes[0].set_ylabel("ML power ratio")
 plt.suptitle("Target-turbine power ratio, ML vs PyWake (ws 4-15 m/s)")
-plt.tight_layout(); plt.savefig(os.path.join(FIG_DIR, "real_farms_benchmark_scatter.png"), dpi=150, bbox_inches="tight"); plt.show()
+plt.tight_layout(); plt.savefig(os.path.join(FIG_DIR, f"{FIG_PREFIX}_benchmark_scatter.png"), dpi=150, bbox_inches="tight"); plt.show()
 
 # %% [markdown]
 # ## 7. Wind-rose aggregated wake loss
@@ -506,19 +531,19 @@ def sector_loss(res, a, b):
 theta = np.radians(WD_BINS)
 fig = plt.figure(figsize=(13, 5))
 for k, (a, b, title) in enumerate([("alone", "existing", "Loss from existing neighbours"),
-                                   ("existing", "existing+future", "Extra loss from future PEZ")]):
+                                   ("existing", "existing+future", "Extra loss from future farms")]):
     ax = fig.add_subplot(1, 2, k + 1, projection="polar")
     ax.set_theta_zero_location("N"); ax.set_theta_direction(-1)
     for method, res, c in [("PyWake", pw, "k"), ("ML", ml, "tab:red")]:
         v = sector_loss(res, a, b)
         ax.plot(np.r_[theta, theta[0]], np.r_[v, v[0]], "o-", color=c, label=method)
     ax.set_title(title + " (% per wind sector)"); ax.legend(loc="lower left", fontsize=8)
-plt.tight_layout(); plt.savefig(os.path.join(FIG_DIR, "real_farms_sector_loss.png"), dpi=150, bbox_inches="tight"); plt.show()
+plt.tight_layout(); plt.savefig(os.path.join(FIG_DIR, f"{FIG_PREFIX}_sector_loss.png"), dpi=150, bbox_inches="tight"); plt.show()
 
 # %% [markdown]
 # ## 8. Layout uncertainty of the future build-out
 #
-# The PEZ turbine positions are unknown, so the future layout is resampled `N_MC_FUTURE` times (real polygons, random spacing-constrained
+# The future turbine positions are unknown, so the future layout is resampled `N_MC_FUTURE` times (real polygons, random spacing-constrained
 # positions). Existing farms keep their real positions. Both methods are run on every sample so the ML uncertainty can be checked against PyWake.
 
 # %%
